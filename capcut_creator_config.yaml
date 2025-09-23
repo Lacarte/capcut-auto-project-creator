@@ -1,0 +1,52 @@
+# CapCut Auto Project Creator Configuration
+# This file defines default settings for the project creator
+
+# Directory containing template files and configurations
+template_dir: "./template-config"
+
+# Root directory where new projects will be created
+project_root: "."
+
+# Required folder structure for CapCut projects
+# Files should end with an extension (e.g., .locked)
+# Directories should not have extensions
+required_structure:
+  - ".locked"              # Empty lock file
+  - "adjust_mask"          # Directory for adjustment masks
+  - "common_attachment"    # Common project attachments
+  - "draft_settings"       # Draft configuration settings
+  - "matting"             # Video matting resources
+  - "qr_upload"           # QR code uploads
+  - "Resources"           # Main resources directory
+  - "Resources/audioAlg"  # Audio algorithm resources
+  - "Resources/videoAlg"  # Video algorithm resources
+  - "smart_crop"          # Smart cropping data
+  - "subdraft"            # Sub-draft storage
+
+# Optional: Project naming rules
+naming:
+  # Pattern for valid project names (regex)
+  pattern: "^[A-Z]\\d{4}$"
+  # Example valid names
+  examples:
+    - "A0001"
+    - "B9999"
+    - "Z1234"
+
+# Optional: Advanced settings
+advanced:
+  # Maximum template size in MB (prevents copying huge templates)
+  max_template_size_mb: 500
+  # Enable automatic backups before overwriting
+  backup_on_overwrite: true
+  # Backup directory
+  backup_dir: "./.capcut_backups"
+  
+# Logging configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  # Log file path (null to disable file logging)
+  file: null
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
