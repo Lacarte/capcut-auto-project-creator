@@ -1,0 +1,45 @@
+{
+  "draft_materials": [],
+  "draft_virtual_store": [
+    {
+      "type": 0,
+      "value": [
+        {
+          "creation_time": 0,
+          "display_name": "",
+          "filter_type": 0,
+          "id": "",
+          "import_time": 0,
+          "import_time_us": 0,
+          "sort_sub_type": 0,
+          "sort_type": 0
+        }
+      ]
+    },
+    {
+      "type": 1,
+      "value": [
+        {
+          "child_id": "eaa88776-a3ee-486d-82d4-cf395d9bfb3a",
+          "parent_id": ""
+        },
+        {
+          "child_id": "9a3aabc2-5d29-4ab1-ac6b-3d8ff17f126f",
+          "parent_id": ""
+        },
+        {
+          "child_id": "46f6cc15-bbe8-4491-a825-d543067ac189",
+          "parent_id": ""
+        },
+        {
+          "child_id": "a4025faf-3d3f-46fa-bd9a-8eeb46968be3",
+          "parent_id": ""
+        }
+      ]
+    },
+    {
+      "type": 2,
+      "value": []
+    }
+  ]
+}

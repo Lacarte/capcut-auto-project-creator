@@ -1,33 +1,14 @@
 """
-capcut_draft_utils.py
----------------------
-Utilities to mimic CapCut's JSON mutation pattern when adding the *first image*
-(and subsequent ones) into `draft_meta_info.json`.
-
-Observed behavior (from real project snapshots):
-- For the first import, CapCut may prepend a tiny placeholder item (metetype="none")
-  before the real image item.
-- A real photo item is then appended with fields like id, metetype="photo", file_Path,
-  width, height, duration (often 5_000_000 microseconds for 5s), timestamps, etc.
-- tm_draft_modified is updated to a microsecond-like integer timestamp.
-
-This module reproduces that pattern faithfully by default.
-
-CLI examples
-------------
-Add one image (with placeholder):
-    python capcut_draft_utils.py --draft path/to/draft_meta_info.json --add-image C:/path/1.jpg
-
-Add a whole folder (sequential order by filename, with placeholder before the first image only):
-    python capcut_draft_utils.py --draft path/to/draft_meta_info.json --add-folder C:/path/images
-
-Disable placeholder (still updates tm_draft_modified):
-    python capcut_draft_utils.py --draft path/to/draft_meta_info.json --add-image C:/path/1.jpg --no-placeholder
+capcut_draft_utils.py - FIXED VERSION
+-------------------------------------
+Fix: Added missing sys import and improved error handling
 """
 
 from __future__ import annotations
 
+import argparse
 import json
+import sys  # FIXED: Added missing import
 import time
 import uuid
 from pathlib import Path
