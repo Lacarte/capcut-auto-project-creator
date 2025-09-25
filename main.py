@@ -21,7 +21,7 @@ from typing import List, Dict
 from initializer import (
     Context,
     build_pipeline,
-    STAGE_REGISTRY,   # name -> class
+    STAGE_REGISTRY,
     StageBase,
 )
 
@@ -76,11 +76,21 @@ def parse_args(argv=None) -> argparse.Namespace:
 def main():
     args = parse_args()
 
-    # Build stages & empty Context
-    stages, ctx = build_pipeline(Path(args.config))
-
     # Temporary logging until YAML stage reconfigures if needed
     setup_logging(args.verbose, args.log_file, args.log_format)
+    
+    # Validate config file exists
+    if not args.config:
+        logging.error("No config file specified")
+        sys.exit(1)
+        
+    config_path = Path(args.config)
+    if not config_path.exists():
+        logging.error("Config file not found: %s", config_path)
+        sys.exit(1)
+
+    # Build stages & empty Context
+    stages, ctx = build_pipeline(config_path)
 
     # If slices provided, filter by those; otherwise --full
     if not args.full and not args.slices:
@@ -96,17 +106,31 @@ def main():
             raise SystemExit("No valid stages matched your --slice filters.")
 
     # Run stages
-    for st in selected:
-        logging.info(">> Stage: %s", st.name())
-        ctx = st.run(ctx, cli_overrides={
-            "project_root": args.project_root,
-            "doctor_autofix": args.fix,
-            "verbosity": args.verbose,
-            "log_file": args.log_file,
-            "log_format": args.log_format,
-        })
+    try:
+        for st in selected:
+            logging.info(">> Stage: %s", st.name())
+            ctx = st.run(ctx, cli_overrides={
+                "project_root": args.project_root,
+                "doctor_autofix": args.fix,
+                "verbosity": args.verbose,
+                "log_file": args.log_file,
+                "log_format": args.log_format,
+            })
 
-    logging.info("Done. Project dir: %s", ctx.project_dir or "(not created)")
+        logging.info("✓ Done. Project dir: %s", ctx.project_dir or "(not created)")
+        
+        # Show summary if we have diagnostics
+        if ctx.diagnostics:
+            issues = ctx.diagnostics.get("issues", [])
+            fixes = ctx.diagnostics.get("fixes_applied", [])
+            if issues:
+                logging.warning("Doctor found %d issue(s)", len(issues))
+            if fixes:
+                logging.info("Doctor applied %d fix(es)", len(fixes))
+                
+    except Exception as e:
+        logging.error("Pipeline failed: %s", e)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
