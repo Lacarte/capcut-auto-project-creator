@@ -1,4 +1,5 @@
 download-midjourney/
+.capcut_backups/
 out/
 # Byte-compiled / optimized / DLL files
 __pycache__/
