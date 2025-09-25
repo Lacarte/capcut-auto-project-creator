@@ -1,2 +1,0 @@
-python comprehensive_id_sync_fixer.py --project "T8812" --diagnose
-python comprehensive_id_sync_fixer.py --project "T8812" --fix

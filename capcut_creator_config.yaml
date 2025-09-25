@@ -1,52 +1,111 @@
 # CapCut Auto Project Creator Configuration
-# This file defines default settings for the project creator
 
-# Directory containing template files and configurations
 template_dir: "./template-config"
-
-# Root directory where new projects will be created
 project_root: "."
-
-# Required folder structure for CapCut projects
-# Files should end with an extension (e.g., .locked)
-# Directories should not have extensions
 required_structure:
-  - ".locked"              # Empty lock file
-  - "adjust_mask"          # Directory for adjustment masks
-  - "common_attachment"    # Common project attachments
-  - "draft_settings"       # Draft configuration settings
-  - "matting"             # Video matting resources
-  - "qr_upload"           # QR code uploads
-  - "Resources"           # Main resources directory
-  - "Resources/audioAlg"  # Audio algorithm resources
-  - "Resources/videoAlg"  # Video algorithm resources
-  - "smart_crop"          # Smart cropping data
-  - "subdraft"            # Sub-draft storage
+  - ".locked"
+  - "adjust_mask"
+  - "common_attachment"
+  - "draft_settings"
+  - "matting"
+  - "qr_upload"
+  - "Resources"
+  - "Resources/audioAlg"
+  - "Resources/videoAlg"
+  - "smart_crop"
+  - "subdraft"
 
-# Optional: Project naming rules
 naming:
-  # Pattern for valid project names (regex)
   pattern: "^[A-Z]\\d{4}$"
-  # Example valid names
-  examples:
-    - "A0001"
-    - "B9999"
-    - "Z1234"
+  examples: ["A0001", "B9999", "Z1234"]
 
-# Optional: Advanced settings
+assets:
+  images_dir: "./assets/images"
+  sounds_dir: "./assets/sounds"
+  image_extensions: [".jpg", ".jpeg", ".png", ".bmp", ".webp", ".webm"]
+  sound_extensions: [".mp3", ".wav", ".m4a"]
+
+timeline:
+  default_image_duration_ms: 5000   # default 5s; editable
+  ordering: "numeric"               # numeric sort (1,2,3…)
+
+transitions:
+  per_cut_probability: 0.65
+  duration_ms_range: [600, 800]
+  # Where CapCut caches effects (override if different user/profile or non-English Windows)
+  cache_root: "C:/Users/Admin/AppData/Local/CapCut/User Data/Cache/effect"
+  catalog:
+    - name: "Fast Swipe"
+      category_id: "25822"
+      category_name: "Trending"
+      effect_id: "7544051798751874365"
+      resource_id: "7544051798751874365"
+      third_resource_id: "0"
+      is_overlap: true
+    - name: "Total Ban"
+      category_id: "25822"
+      category_name: "remen"
+      effect_id: "7545400875309747517"
+      resource_id: "7545400875309747517"
+      third_resource_id: "0"
+      is_overlap: true
+    - name: "Color Glitch"
+      category_id: "25822"
+      category_name: "remen"
+      effect_id: "6724239785205961228"
+      resource_id: "6724239785205961228"
+      third_resource_id: "6724239785205961228"
+      is_overlap: false
+    - name: "TV Glitch"
+      category_id: "25822"
+      category_name: "remen"
+      effect_id: "7473770029234916669"
+      resource_id: "7473770029234916669"
+      third_resource_id: "7474958184738722321"
+      is_overlap: true
+    - name: "Glitchy Fade"
+      category_id: "25822"
+      category_name: "remen"
+      effect_id: "7543568407669558581"
+      resource_id: "7543568407669558581"
+      third_resource_id: "0"
+      is_overlap: true
+    - name: "Slosh"
+      category_id: "25822"
+      category_name: "remen"
+      effect_id: "7340902143936696834"
+      resource_id: "7340902143936696834"
+      third_resource_id: "7340902143936696834"
+      is_overlap: true
+    - name: "Colorligh"
+      category_id: "25822"
+      category_name: "remen"
+      effect_id: "7548352051529436469"
+      resource_id: "7548352051529436469"
+      third_resource_id: "0"
+      is_overlap: true
+    - name: "Signal Glitch 2"
+      category_id: "25822"
+      category_name: "remen"
+      effect_id: "7343854374147330562"
+      resource_id: "7343854374147330562"
+      third_resource_id: "7343854374147330562"
+      is_overlap: false
+
+
+doctor:
+  autofix: true
+  strict: true
+
+ids:
+  strategy: "mirror"                # replicate CapCut’s ID structure
+
 advanced:
-  # Maximum template size in MB (prevents copying huge templates)
   max_template_size_mb: 500
-  # Enable automatic backups before overwriting
   backup_on_overwrite: true
-  # Backup directory
   backup_dir: "./.capcut_backups"
-  
-# Logging configuration
+
 logging:
-  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
   level: "INFO"
-  # Log file path (null to disable file logging)
   file: null
-  # Log format
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
