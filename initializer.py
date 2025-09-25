@@ -209,38 +209,53 @@ class prepare_project_dirStage(StageBase):
         logger.info("Prepared project dir: %s", project_dir)
         return ctx
 
-
 class scan_assetsStage(StageBase):
-    """3) Discover images & sounds; natural numeric order."""
+    """3) Discover images & videos (+ sounds); natural numeric order."""
 
     def run(self, ctx: Context, cli_overrides: Dict[str, Any] | None = None) -> Context:
         a = ctx.config.get("assets", {})
         images_dir_raw = a.get("images_dir", "assets/images")
         sounds_dir_raw = a.get("sounds_dir", "assets/sounds")
-        img_exts = set(e.lower() for e in a.get("image_extensions", [".jpg", ".jpeg", ".png", ".webp"]))
-        snd_exts = set(e.lower() for e in a.get("sound_extensions", [".mp3", ".m4a", ".wav"]))
+
+        # Accept videos in the same bucket: jsonfiller will branch by extension
+        img_exts = set(e.lower() for e in a.get("image_extensions", [
+            ".jpg", ".jpeg", ".png", ".webp",  # images
+            ".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm", ".3gp", ".mts", ".m2ts"  # videos
+        ]))
+        snd_exts = set(e.lower() for e in a.get("sound_extensions", [
+            ".mp3", ".m4a", ".wav"
+        ]))
+
+        def _abs(p: str | Path) -> Path:
+            return Path(p).expanduser().resolve()
+
+        def _natural_sort_key(path: Path) -> tuple[int, str]:
+            import re
+            m = re.search(r"(\d+)$", path.stem)
+            return (int(m.group(1)) if m else 10**9, path.name.lower())
 
         images_dir = _abs(images_dir_raw)
         sounds_dir = _abs(sounds_dir_raw)
 
         if images_dir.exists():
-            imgs = [p for p in images_dir.iterdir() if p.is_file() and p.suffix.lower() in img_exts]
-            imgs.sort(key=_natural_sort_key)
-            ctx.images = imgs
-            logger.info("Found %d image(s) in %s", len(imgs), images_dir)
+            files = [p for p in images_dir.iterdir() if p.is_file() and p.suffix.lower() in img_exts]
+            files.sort(key=_natural_sort_key)
+            ctx.images = files
+            logger.info("Found %d media file(s) (images+videos) in %s", len(files), images_dir)
         else:
-            logger.warning("Images dir not found: %s", images_dir)
+            logger.warning("Images/videos dir not found: %s", images_dir)
 
         if sounds_dir.exists():
             snds = [p for p in sounds_dir.iterdir() if p.is_file() and p.suffix.lower() in snd_exts]
             snds.sort(key=_natural_sort_key)
             ctx.sounds = snds
-            logger.info("Found %d sound(s) in %s", len(snds), sounds_dir)
+            logger.info("Found %d sound file(s) in %s", len(snds), sounds_dir)
         else:
             logger.info("Sounds dir not found: %s", sounds_dir)
+
         return ctx
-
-
+    
+    
 class import_mediaStage(StageBase):
     """4) Populate meta & virtual_store using jsonfiller.add_imports (images/sounds)."""
 
@@ -272,6 +287,7 @@ class build_timelineStage(StageBase):
         images = [str(p) for p in ctx.images]
         sounds = [str(p) for p in ctx.sounds]
         dc1, timeline_cache = build_timeline(dc0, images, sounds, default_ms, ordering=ordering, idmaps=ctx.idmaps)
+        
         ctx.baselines["draft_content"] = dc1
         ctx.timeline = timeline_cache or {}
         logger.info("Timeline built with %d clip(s).", len(ctx.timeline.get("clips", [])))
@@ -372,6 +388,163 @@ class doctorStage(StageBase):
         return ctx
 
 
+
+class clean_templatesStage(StageBase):
+    """0) Clean template JSONs to remove old asset references before starting."""
+
+    def run(self, ctx: Context, cli_overrides: Dict[str, Any] | None = None) -> Context:
+        # Check if templates need cleaning (have old asset references)
+        if not ctx.template_dir:
+            raise RuntimeError("Template directory not set")
+        
+        template_files = {
+            "draft_meta_info.json": ctx.template_dir / "draft_meta_info.json", 
+            "draft_content.json": ctx.template_dir / "draft_content.json",
+        }
+        
+        needs_cleaning = False
+        for name, path in template_files.items():
+            if path.exists():
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    # Check for old asset references
+                    if name == "draft_meta_info.json":
+                        materials = data.get("draft_materials", [])
+                        for bucket in materials:
+                            if bucket.get("type") == 0 and bucket.get("value"):
+                                # Has imported media - check if files exist
+                                for item in bucket["value"][:3]:  # Check first few
+                                    file_path = item.get("file_Path", "")
+                                    if file_path and not Path(file_path).exists():
+                                        needs_cleaning = True
+                                        logger.info(f"Found stale reference: {file_path}")
+                                        break
+                                if needs_cleaning:
+                                    break
+                    
+                    elif name == "draft_content.json":
+                        # Check for materials with paths
+                        materials = data.get("materials", {})
+                        videos = materials.get("videos", [])
+                        audios = materials.get("audios", [])
+                        for material in (videos + audios)[:3]:  # Check first few
+                            path_field = material.get("path", "")
+                            if path_field and not Path(path_field).exists():
+                                needs_cleaning = True
+                                logger.info(f"Found stale material path: {path_field}")
+                                break
+                    
+                    if needs_cleaning:
+                        break
+                        
+                except Exception as e:
+                    logger.warning("Could not analyze template %s: %s", path, e)
+        
+        # Clean templates if needed
+        if needs_cleaning:
+            logger.info("Detected stale asset references in templates - cleaning...")
+            self._clean_template_files(ctx.template_dir)
+            logger.info("Templates cleaned successfully")
+        else:
+            logger.info("Templates are clean - no old asset references found")
+            
+        return ctx
+    
+    def _clean_template_files(self, template_dir: Path) -> None:
+        """Clean template files by removing asset-specific content."""
+        # Clean draft_meta_info.json
+        meta_info_path = template_dir / "draft_meta_info.json"
+        if meta_info_path.exists():
+            clean_meta = {
+                "cloud_draft_cover": True,
+                "cloud_draft_sync": True,
+                "draft_cover": "draft_cover.jpg",
+                "draft_fold_path": "./template-project",
+                "draft_id": "00000000-0000-0000-0000-000000000000",
+                "draft_materials": [
+                    {"type": 0, "value": []},  # Will be populated by pipeline
+                    {"type": 1, "value": []},
+                    {"type": 2, "value": []},
+                    {"type": 3, "value": []},
+                    {"type": 6, "value": []},
+                    {"type": 7, "value": []},
+                    {"type": 8, "value": []}
+                ],
+                "draft_name": "template-project",
+                "draft_type": "",
+                "tm_draft_create": 0,
+                "tm_draft_modified": 0,
+                "tm_duration": 0
+            }
+            
+            # Preserve other fields from original if they exist
+            try:
+                with open(meta_info_path, 'r', encoding='utf-8') as f:
+                    original = json.load(f)
+                for key, value in original.items():
+                    if key not in clean_meta and not key.startswith(('draft_materials', 'tm_')):
+                        clean_meta[key] = value
+            except:
+                pass
+            
+            with open(meta_info_path, 'w', encoding='utf-8') as f:
+                json.dump(clean_meta, f, indent=2, ensure_ascii=False)
+        
+        # Clean draft_content.json
+        content_path = template_dir / "draft_content.json"
+        if content_path.exists():
+            clean_content = {
+                "canvas_config": {
+                    "background": None,
+                    "height": 1920,
+                    "ratio": "original", 
+                    "width": 1280
+                },
+                "duration": 0,
+                "fps": 30.0,
+                "materials": {
+                    "videos": [],
+                    "audios": [],
+                    "transitions": [],
+                    "speeds": [],
+                    "placeholder_infos": [],
+                    "sound_channel_mappings": []
+                },
+                "tracks": [],
+                "version": 360000
+            }
+            
+            # Preserve other fields from original
+            try:
+                with open(content_path, 'r', encoding='utf-8') as f:
+                    original = json.load(f)
+                for key, value in original.items():
+                    if key not in clean_content and key not in ('materials', 'tracks', 'duration'):
+                        clean_content[key] = value
+            except:
+                pass
+            
+            with open(content_path, 'w', encoding='utf-8') as f:
+                json.dump(clean_content, f, indent=2, ensure_ascii=False)
+        
+        # Clean draft_virtual_store.json
+        vstore_path = template_dir / "draft_virtual_store.json"
+        if vstore_path.exists():
+            clean_vstore = {
+                "draft_materials": [],
+                "draft_virtual_store": [
+                    {"type": 0, "value": [{"creation_time": 0, "display_name": "", "filter_type": 0, "id": "", "import_time": 0, "import_time_us": 0, "sort_sub_type": 0, "sort_type": 0}]},
+                    {"type": 1, "value": []},
+                    {"type": 2, "value": []}
+                ]
+            }
+            with open(vstore_path, 'w', encoding='utf-8') as f:
+                json.dump(clean_vstore, f, indent=2, ensure_ascii=False)
+
+
+
 class write_jsonStage(StageBase):
     """10) Write JSON triplet + ops + doctor report (atomic + optional backups)."""
 
@@ -410,6 +583,7 @@ class write_jsonStage(StageBase):
 def build_pipeline(config_path: Path) -> Tuple[List[StageBase], Context]:
     stages: List[StageBase] = [
         load_configStage(config_path),
+        clean_templatesStage(),  # NEW: Clean templates first
         prepare_project_dirStage(),
         scan_assetsStage(),
         import_mediaStage(),
@@ -426,6 +600,7 @@ def build_pipeline(config_path: Path) -> Tuple[List[StageBase], Context]:
 # Exported registry for CLI help and external selection
 STAGE_REGISTRY: Dict[str, type] = {
     load_configStage.name(): load_configStage,
+    clean_templatesStage.name(): clean_templatesStage,  # NEW
     prepare_project_dirStage.name(): prepare_project_dirStage,
     scan_assetsStage.name(): scan_assetsStage,
     import_mediaStage.name(): import_mediaStage,

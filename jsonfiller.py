@@ -1,4 +1,4 @@
-# jsonfiller.py - Enhanced with proper CapCut compatibility
+# jsonfiller.py - CapCut‑compatible fillers (imports → materials → segments → transitions)
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,7 +8,6 @@ import json
 import subprocess
 import logging
 import uuid
-import re
 import random
 
 log = logging.getLogger(__name__)
@@ -142,9 +141,9 @@ def _create_accessory_materials(dc: Dict[str, Any], num_segments: int) -> Tuple[
     placeholder_infos = dc["materials"]["placeholder_infos"]
     sound_mappings = dc["materials"]["sound_channel_mappings"]
     
-    speed_ids = []
-    placeholder_ids = []
-    sound_mapping_ids = []
+    speed_ids: List[str] = []
+    placeholder_ids: List[str] = []
+    sound_mapping_ids: List[str] = []
     
     for _ in range(num_segments):
         # Speed material (1.0x speed)
@@ -229,28 +228,32 @@ def add_imports(
         import_id = _uuid_lower()
         if _is_video(path):
             w, h, dur_us = _probe_video_meta(path)
-            meta_items.append({
+            payload = {
                 "id": import_id,
                 "path": path,
                 "file_name": _fname(path),
+                "file_Path": path,            # <- add legacy mirror
+                "material_name": _fname(path),
                 "width": w,
                 "height": h,
                 "duration": dur_us,
                 "category_name": "local",
                 "source_platform": 0,
-            })
+            }
         else:
             w, h = _get_img_size(path)
-            meta_items.append({
+            payload = {
                 "id": import_id,
                 "path": path,
                 "file_name": _fname(path),
+                "file_Path": path,            # <- add legacy mirror
+                "material_name": _fname(path),
                 "width": w,
                 "height": h,
-                # no duration for photos required
                 "category_name": "local",
                 "source_platform": 0,
-            })
+            }
+        meta_items.append(payload)
         vstore_children.append({"child_id": import_id})
         idmaps["images"].append({"path": path, "import_id": import_id})
 
@@ -263,6 +266,8 @@ def add_imports(
             "id": aud_imp_id,
             "path": apath,
             "file_name": _fname(apath),
+            "file_Path": apath,             # <- legacy mirror
+            "material_name": _fname(apath),
             "duration": dur_us,
             "category_name": "local",
             "source_platform": 0,
@@ -289,7 +294,7 @@ def build_timeline(
 
     vtrack = next((t for t in dc["tracks"] if t.get("type") == "video"), None)
     if vtrack is None:
-        vtrack = {"type": "video", "segments": []}
+        vtrack = {"id": _uuid_upper(), "type": "video", "segments": []}  # ensure track id
         dc["tracks"].append(vtrack)
     segments = vtrack["segments"]
 
@@ -316,7 +321,8 @@ def build_timeline(
             mat_id = _uuid_upper()
             videos.append({
                 "id": mat_id,
-                "local_material_id": local_id,  # CRITICAL LINK
+                "local_material_id": local_id,   # keep this
+                "type": "video",                 # <-- add this line
                 "path": path,
                 "width": w,
                 "height": h,
@@ -324,6 +330,7 @@ def build_timeline(
                 "category_name": "local",
                 "source_platform": 0,
             })
+
             seg_id = _uuid_upper()
             segments.append({
                 "id": seg_id,
@@ -391,12 +398,14 @@ def build_timeline(
             "id": am_id,
             "local_material_id": aud_imp,
             "path": apath,
+            "type": "extract_music",         # <-- add
+            "name": _fname(apath),           # <-- add
             "duration": dur_us,
         })
         
         atrack = next((t for t in dc["tracks"] if t.get("type") == "audio"), None)
         if atrack is None:
-            atrack = {"type": "audio", "segments": []}
+            atrack = {"id": _uuid_upper(), "type": "audio", "segments": []}  # ensure track id
             dc["tracks"].append(atrack)
         
         # Create accessory materials for the audio segment
@@ -447,76 +456,99 @@ def build_timeline(
 
     return dc, cache
 
-
 def apply_transitions(
     draft_content: Dict[str, Any],
-    timeline_cache: Dict[str, Any],
-    transition_config: Dict[str, Any],
+    timeline: Dict[str, Any],
+    names: List[str],
     per_cut_probability: float,
-    duration_ms_range: Tuple[int, int],
+    duration_ms_range: tuple[int, int],
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    """Apply real transitions with proper CapCut formatting and cache paths."""
-    if not transition_config or not transition_config.get("catalog"):
-        return draft_content, timeline_cache
+    dc = _ensure_content_scaffolding(dict(draft_content))
 
-    dc = dict(draft_content)
-    mats = dc.setdefault("materials", {})
-    transitions = mats.setdefault("transitions", [])
-
+    # Find video track with at least two segments
     vtrack = next((t for t in dc.get("tracks", []) if t.get("type") == "video"), None)
     if not vtrack:
-        return dc, timeline_cache
+        log.info("[transitions] no video track; skipping")
+        return dc, timeline
     segs = vtrack.get("segments", [])
     if len(segs) < 2:
-        return dc, timeline_cache
+        log.info("[transitions] <2 segments; skipping")
+        return dc, timeline
 
-    catalog = transition_config.get("catalog", [])
-    cache_root = transition_config.get("cache_root", "")
-    lo, hi = duration_ms_range
-    lo = max(200, int(lo))
-    hi = max(lo, int(hi))
+    # Catalog/cache path injected by initializer
+    catalog = (timeline or {}).get("catalog") or []
+    cache_root = (timeline or {}).get("cache_root")
+    if not catalog:
+        log.info("[transitions] empty catalog; skipping")
+        return dc, timeline
+
+    # Optional allow-list; if it empties out, fall back to full catalog
+    if names:
+        wanted = set(names)
+        filtered = [c for c in catalog if c.get("name") in wanted]
+        if filtered:
+            catalog = filtered
+
+    # Probability & duration guard rails
+    p = max(0.0, min(1.0, float(per_cut_probability)))
+    try:
+        dmin, dmax = int(duration_ms_range[0]), int(duration_ms_range[1])
+    except Exception:
+        dmin, dmax = 600, 800
+    if dmin > dmax:
+        dmin, dmax = dmax, dmin
+
+    transitions = dc["materials"].setdefault("transitions", [])
+    added = 0
 
     for i in range(len(segs) - 1):
-        if random.random() > per_cut_probability:
+        if random.random() > p:
             continue
-            
-        # Pick a random transition from catalog
-        transition_def = random.choice(catalog)
-        dur_us = int(random.randint(lo, hi) * 1000)
-        tr_id = _uuid_upper()
-        
-        # Resolve cache path if possible
-        effect_id = transition_def.get("effect_id", "")
-        cache_path = _resolve_transition_cache_path(cache_root, effect_id)
-        
-        transition_material = {
-            "id": tr_id,
-            "name": transition_def.get("name", "Transition"),
+
+        spec = random.choice(catalog)
+        # compute a safe duration that fits both clips; ≥200ms
+        want_us = random.randint(dmin, dmax) * 1000
+        prev_us = int(segs[i].get("target_timerange", {}).get("duration", 0) or 0)
+        next_us = int(segs[i+1].get("target_timerange", {}).get("duration", 0) or 0)
+        dur_us  = max(200_000, min(want_us, prev_us or want_us, next_us or want_us))
+
+        effect_id = str(spec.get("effect_id") or spec.get("resource_id") or "")
+        path = _resolve_transition_cache_path(cache_root, effect_id) if effect_id else ""
+
+        tid = _uuid_upper()
+        transitions.append({
+            "id": tid,
+            "name": spec.get("name", "Transition"),
             "duration": dur_us,
-            "is_overlap": transition_def.get("is_overlap", True),
-            "category_id": transition_def.get("category_id", "25822"),
-            "category_name": transition_def.get("category_name", "remen"),
+            "is_overlap": bool(spec.get("is_overlap", True)),
+            "category_id": str(spec.get("category_id", "25822")),
+            "category_name": spec.get("category_name", "Trending"),
             "effect_id": effect_id,
-            "resource_id": transition_def.get("resource_id", effect_id),
-            "third_resource_id": transition_def.get("third_resource_id", "0"),
+            "resource_id": str(spec.get("resource_id", effect_id)),
+            # In many CapCut drafts this mirrors effect_id; fall back to effect_id if unset
+            "third_resource_id": str(spec.get("third_resource_id", effect_id or "0")),
             "platform": "all",
             "source_platform": 1,
             "type": "transition",
-            "path": cache_path,
+            "path": path,
             "video_path": "",
             "request_id": "",
             "task_id": "",
-            "is_ai_transition": False
-        }
-        
-        transitions.append(transition_material)
-        
-        # Add transition ID to the segment's extra_material_refs
-        if "extra_material_refs" not in segs[i]:
-            segs[i]["extra_material_refs"] = []
-        segs[i]["extra_material_refs"].insert(0, tr_id)  # Insert at beginning
+            "is_ai_transition": False,
+        })
 
-    return dc, timeline_cache
+        # Insert into PRECEDING segment, after speed & placeholder (index 2)
+        refs = segs[i].setdefault("extra_material_refs", [])
+        insert_pos = 2 if len(refs) >= 2 else len(refs)
+        if tid not in refs:
+            refs.insert(insert_pos, tid)
+            added += 1
+
+    log.info("[transitions] catalog=%d cuts=%d added=%d",
+             len(catalog), max(0, len(segs) - 1), added)
+    return dc, timeline
+
+
 
 
 __all__ = [

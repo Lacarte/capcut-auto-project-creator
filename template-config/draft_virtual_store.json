@@ -1,1 +1,28 @@
-{"draft_materials":[],"draft_virtual_store":[{"type":0,"value":[{"creation_time":0,"display_name":"","filter_type":0,"id":"","import_time":0,"import_time_us":0,"sort_sub_type":0,"sort_type":0}]},{"type":1,"value":[{"child_id":"cd484075-d92a-4bc9-b45c-d093d2f9e71b","parent_id":""},{"child_id":"29662f55-7290-4a2b-a069-695eb686d7cd","parent_id":""},{"child_id":"c54343a7-495e-4968-95c4-a32e794dbeab","parent_id":""},{"child_id":"9316487b-e5ab-4798-92c7-3cc023202a46","parent_id":""},{"child_id":"8b70b15d-9210-4810-8cab-bb1cb9f7f53a","parent_id":""},{"child_id":"429fc0e4-a9d2-4b36-88a7-5cf05407cb89","parent_id":""},{"child_id":"07dbdd69-c8c6-4050-9423-6ab37da6f0fd","parent_id":""}]},{"type":2,"value":[]}]}
+{
+  "draft_materials": [],
+  "draft_virtual_store": [
+    {
+      "type": 0,
+      "value": [
+        {
+          "creation_time": 0,
+          "display_name": "",
+          "filter_type": 0,
+          "id": "",
+          "import_time": 0,
+          "import_time_us": 0,
+          "sort_sub_type": 0,
+          "sort_type": 0
+        }
+      ]
+    },
+    {
+      "type": 1,
+      "value": []
+    },
+    {
+      "type": 2,
+      "value": []
+    }
+  ]
+}

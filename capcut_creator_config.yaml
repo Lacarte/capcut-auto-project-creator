@@ -25,11 +25,17 @@ naming:
 
 # Asset discovery and processing
 assets:
-  images_dir: "assets/images"
-  image_extensions: [".jpg", ".jpeg", ".png", ".webp", ".bmp"]
-  video_extensions: [".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm", ".3gp", ".mts", ".m2ts"]
-  sounds_dir: "assets/sounds"
-  sound_extensions: [".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac"]
+  images_dir: "./assets/images"
+  sounds_dir: "./assets/sounds"
+
+  # Include videos here so they are scanned & added to the timeline
+  image_extensions:
+    [".jpg", ".jpeg", ".png", ".bmp", ".webp",
+     ".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm", ".3gp", ".mts", ".m2ts"]
+
+  sound_extensions:
+    [".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac"]
+
   default_image_duration_ms: 5000
 
 # Timeline configuration
@@ -38,124 +44,26 @@ timeline:
   default_image_duration_ms: 5000   # default 5s duration for images
   ordering: "numeric"               # numeric sort (1,2,3…10,11 not 1,10,11,2,3)
 
-# Transition system configuration
 transitions:
-  per_cut_probability: 0.65         # 65% chance to add transition between clips
-  duration_ms_range: [600, 800]     # transition duration range in milliseconds
-  
-  # CapCut effect cache location (adjust for your system/user)
-  # Windows default: C:/Users/{Username}/AppData/Local/CapCut/User Data/Cache/effect
-  # macOS default: ~/Library/Application Support/CapCut/User Data/Cache/effect
+  per_cut_probability: 1.0
+  duration_ms_range: [600, 900]
   cache_root: "C:/Users/Admin/AppData/Local/CapCut/User Data/Cache/effect"
-  
-  # Real CapCut transition effects catalog
-  # These are actual effect IDs from CapCut - they will work if CapCut can download them
   catalog:
-    # Popular/Trending transitions
     - name: "Fast Swipe"
+      is_overlap: true
       category_id: "25822"
       category_name: "Trending"
       effect_id: "7544051798751874365"
       resource_id: "7544051798751874365"
       third_resource_id: "0"
-      is_overlap: true
-      
-    - name: "Total Ban"
-      category_id: "25822"
-      category_name: "Trending"
-      effect_id: "7545400875309747517"
-      resource_id: "7545400875309747517"
-      third_resource_id: "0"
-      is_overlap: true
-      
-    - name: "Color Glitch"
-      category_id: "25822"
-      category_name: "Glitch"
-      effect_id: "6724239785205961228"
-      resource_id: "6724239785205961228"
-      third_resource_id: "6724239785205961228"
-      is_overlap: false
-      
-    - name: "TV Glitch"
-      category_id: "25822"
-      category_name: "Glitch"
-      effect_id: "7473770029234916669"
-      resource_id: "7473770029234916669"
-      third_resource_id: "7474958184738722321"
-      is_overlap: true
-      
-    - name: "Glitchy Fade"
-      category_id: "25822"
-      category_name: "Glitch"
-      effect_id: "7543568407669558581"
-      resource_id: "7543568407669558581"
-      third_resource_id: "0"
-      is_overlap: true
-      
-    - name: "Slosh"
-      category_id: "25822"
-      category_name: "Fluid"
-      effect_id: "7340902143936696834"
-      resource_id: "7340902143936696834"
-      third_resource_id: "7340902143936696834"
-      is_overlap: true
-      
-    - name: "Colorligh"
-      category_id: "25822"
-      category_name: "Light"
-      effect_id: "7548352051529436469"
-      resource_id: "7548352051529436469"
-      third_resource_id: "0"
-      is_overlap: true
-      
-    - name: "Signal Glitch 2"
-      category_id: "25822"
-      category_name: "Glitch"
-      effect_id: "7343854374147330562"
-      resource_id: "7343854374147330562"
-      third_resource_id: "7343854374147330562"
-      is_overlap: false
-      
-    - name: "Horizontal Blur"
-      category_id: "25822"
-      category_name: "Blur"
-      effect_id: "7451535587812594193"
-      resource_id: "7451535587812594193"
-      third_resource_id: "7451535587812594193"
-      is_overlap: true
-      
     - name: "Clap & Pull"
+      is_overlap: true
       category_id: "25822"
       category_name: "Trending"
       effect_id: "7537227214035619088"
       resource_id: "7537227214035619088"
       third_resource_id: "0"
-      is_overlap: true
-      
-    - name: "Red Light"
-      category_id: "25822"
-      category_name: "Light"
-      effect_id: "7485281982293773573"
-      resource_id: "7485281982293773573"
-      third_resource_id: "0"
-      is_overlap: true
-      
-    # Classic/Basic transitions
-    - name: "Fade"
-      category_id: "25821"
-      category_name: "Basic"
-      effect_id: "7000000000000000001"
-      resource_id: "7000000000000000001"
-      third_resource_id: "0"
-      is_overlap: true
-      
-    - name: "Dissolve"
-      category_id: "25821"
-      category_name: "Basic"
-      effect_id: "7000000000000000002"
-      resource_id: "7000000000000000002"
-      third_resource_id: "0"
-      is_overlap: true
+
 
 # Validation and auto-repair settings
 doctor:
