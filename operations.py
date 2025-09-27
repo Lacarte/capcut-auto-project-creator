@@ -1,224 +1,154 @@
 # operations.py
 from __future__ import annotations
-
-from dataclasses import dataclass
+from typing import Dict, Any, List, Tuple, Optional
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+import uuid
+import time
+import random
+import re
 import subprocess
-import json
+import shlex
 import math
-import logging
 
-log = logging.getLogger(__name__)
+MICROS_PER_MS = 1_000
+MICROS_PER_SEC = 1_000_000
 
-# Prefer local repo lib/ffprobe.exe; fallback to PATH "ffprobe"
-FFPROBE_PATH = Path(__file__).resolve().parent / "lib" / "ffprobe.exe"
+# ------------------ time & id helpers ------------------
 
+def now_epoch_ms() -> int:
+    return int(time.time() * 1000)
 
-# =========================
-# Probing (images/videos)
-# =========================
+def gen_uuid(lowercase: bool = True) -> str:
+    u = str(uuid.uuid4())
+    return u.lower() if lowercase else u
 
-@dataclass
-class ProbedMedia:
-    path: Path
-    media_type: str  # "image" or "video"
-    width: int
-    height: int
-    duration_us: int  # images: default; videos: actual
-    fps: Optional[float]
+def ms_to_us(ms: int) -> int:
+    return int(ms) * MICROS_PER_MS
 
+# ------------------ timeline helpers ------------------
 
-def _run_ffprobe(path: Path) -> Optional[dict]:
-    try:
-        exe = str(FFPROBE_PATH) if FFPROBE_PATH.exists() else "ffprobe"
-        cmd = [
-            exe, "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,duration,avg_frame_rate",
-            "-of", "json", str(path)
-        ]
-        out = subprocess.check_output(cmd)
-        return json.loads(out.decode("utf-8"))
-    except Exception as e:
-        log.debug("[ffprobe] failed for %s: %s", path, e)
-        return None
-
-
-def _fps_from_ffprobe(avg_frame_rate: Optional[str]) -> Optional[float]:
-    if not avg_frame_rate:
-        return None
-    if "/" in avg_frame_rate:
-        num, den = avg_frame_rate.split("/", 1)
-        try:
-            num_f = float(num); den_f = float(den)
-            return num_f / den_f if den_f != 0 else None
-        except Exception:
-            return None
-    try:
-        return float(avg_frame_rate)
-    except Exception:
-        return None
-
-
-def probe_media_or_image(path: Path, default_image_duration_ms: int) -> ProbedMedia:
-    ext = path.suffix.lower()
-    is_video = ext in {".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm", ".3gp", ".mts", ".m2ts"}
-
-    # Sensible fallbacks
-    width = 1920
-    height = 1080
-    fps = None
-    duration_us = int(default_image_duration_ms * 1000)
-
-    info = _run_ffprobe(path)
-    if info and info.get("streams"):
-        st = info["streams"][0]
-        width = int(st.get("width") or width)
-        height = int(st.get("height") or height)
-        fps = _fps_from_ffprobe(st.get("avg_frame_rate"))
-        if is_video:
-            dur_s = st.get("duration")
-            if dur_s is not None:
-                try:
-                    duration_us = int(float(dur_s) * 1_000_000)
-                except Exception:
-                    pass
-
-    return ProbedMedia(
-        path=path,
-        media_type="video" if is_video else "image",
-        width=width,
-        height=height,
-        duration_us=duration_us,
-        fps=fps,
-    )
-
-
-def natural_key(p: Path) -> Tuple[int, str]:
-    """Sort key: trailing number in stem if present (1,2,10…), then name."""
-    import re
-    s = p.stem
-    nums = re.findall(r"\d+", s)
-    return (int(nums[-1]) if nums else math.inf, s.lower())
-
-
-# =========================
-# Operations summary
-# =========================
-
-def compute_operations(
-    draft_content: Dict[str, Any],
-    draft_meta_info: Dict[str, Any],
-    draft_virtual_store: Dict[str, Any],
-    timeline_cache: Dict[str, Any],
-    idmaps: Dict[str, Any],
-    generated_at_us: int,
-) -> Dict[str, Any]:
-    """Build a compact, human/debug-friendly summary of the project.
-
-    This is consumed by later stages (synchronizer/doctor) and is safe to evolve
-    without breaking CapCut JSON format. It does **not** mutate inputs.
+def compute_track_positions(n: int, clip_ms: int, trans_ms: int) -> List[Tuple[int, int]]:
     """
-    # Collect clips from draft_content (authoritative) or timeline cache
-    clips = []
-    vtrack = next((t for t in draft_content.get("tracks", []) if t.get("type") == "video"), None)
-    if vtrack:
-        for idx, seg in enumerate(vtrack.get("segments", []), start=1):
-            tr = seg.get("target_timerange", {})
-            clips.append({
-                "i": idx,
-                "segment_id": seg.get("id"),
-                "material_id": seg.get("material_id"),
-                "start_us": int(tr.get("start", 0)),
-                "dur_us": int(tr.get("duration", 0)),
-                "extra_materials": len(seg.get("extra_material_refs", [])),
-            })
-    elif timeline_cache and timeline_cache.get("clips"):
-        # fall back to whatever build_timeline cached
-        for idx, clip in enumerate(timeline_cache["clips"], start=1):
-            clips.append({
-                "i": idx,
-                "segment_id": clip.get("segment_id", ""),
-                "material_id": clip.get("material_id", ""),
-                "start_us": int(clip.get("start_us", 0)),
-                "dur_us": int(clip.get("dur_us", 0)),
-                "extra_materials": 0,
-            })
+    Return [(start_us, dur_us)] for n clips.
+    Conservative baseline:
+      - All clips advance by clip_ms regardless of transition overlap.
+      - Overlap is visually handled by CapCut via transition refs.
+    """
+    out: List[Tuple[int, int]] = []
+    cur_ms = 0
+    for _ in range(n):
+        out.append((ms_to_us(cur_ms), ms_to_us(clip_ms)))
+        cur_ms += clip_ms
+    return out
 
-    # Collect audio info
-    audio_info = []
-    atrack = next((t for t in draft_content.get("tracks", []) if t.get("type") == "audio"), None)
-    if atrack:
-        for idx, seg in enumerate(atrack.get("segments", []), start=1):
-            tr = seg.get("target_timerange", {})
-            audio_info.append({
-                "i": idx,
-                "segment_id": seg.get("id"),
-                "material_id": seg.get("material_id"),
-                "start_us": int(tr.get("start", 0)),
-                "dur_us": int(tr.get("duration", 0)),
-            })
+def choose_transition(catalog: List[Dict[str, Any]], policy: Dict[str, Any], rr_idx: int) -> Dict[str, Any]:
+    if not catalog:
+        return {}
+    mode = (policy.get("mode") or "random").lower()
+    if mode == "fixed":
+        name = policy.get("fixed_name", "")
+        for t in catalog:
+            if t.get("name") == name:
+                return t
+        return random.choice(catalog)
+    if mode == "round_robin":
+        return catalog[rr_idx % len(catalog)]
+    return random.choice(catalog)
 
-    # Collect transitions info
-    transitions_info = []
-    if "materials" in draft_content and "transitions" in draft_content["materials"]:
-        for idx, trans in enumerate(draft_content["materials"]["transitions"], start=1):
-            transitions_info.append({
-                "i": idx,
-                "id": trans.get("id"),
-                "name": trans.get("name", "Unknown"),
-                "duration_us": int(trans.get("duration", 0)),
-                "effect_id": trans.get("effect_id", ""),
-                "is_overlap": trans.get("is_overlap", False),
-                "has_cache_path": bool(trans.get("path", "")),
-            })
+def clamp_transition_duration_ms(cat_entry: Dict[str, Any], desired_ms: int) -> int:
+    mn = int(cat_entry.get("min_duration_ms", 200))
+    mx = int(cat_entry.get("max_duration_ms", 2000))
+    d  = int(desired_ms)
+    return max(mn, min(mx, d))
 
-    # Compute total duration from content if not set
-    computed_total = 0
-    if clips:
-        computed_total = max((c["start_us"] + c["dur_us"] for c in clips), default=0)
-    content_total = int(draft_content.get("duration", 0) or 0)
-    total_us = max(content_total, computed_total)
+# ------------------ media scanning (mixed images & videos) ------------------
 
-    # Calculate audio duration
-    audio_duration_us = 0
-    if audio_info:
-        audio_duration_us = max((a["start_us"] + a["dur_us"] for a in audio_info), default=0)
+_IMAGE_EXTS = {".jpg",".jpeg",".png",".bmp",".webp",".gif",".tif",".tiff"}
+_VIDEO_EXTS = {".mp4",".mov",".mkv",".avi",".webm",".m4v"}
+_AUDIO_EXTS = {".mp3",".wav",".aac",".m4a",".flac",".ogg"}
 
-    summary = {
-        "generated_at_us": int(generated_at_us),
-        "project": {
-            "name": draft_meta_info.get("draft_name"),
-            "folder": draft_meta_info.get("draft_fold_path"),
-            "tracks": len(draft_content.get("tracks", [])),
-            "clips": len(clips),
-            "transitions": len(transitions_info),
-            "duration_us": total_us,
-            "audio_duration_us": audio_duration_us,
-            "duration_mismatch": abs(total_us - audio_duration_us) > 1000 if audio_duration_us > 0 else False,
-        },
-        "clips": clips,
-        "audio": audio_info,
-        "transitions": transitions_info,
-        "idmaps": idmaps or {},
-        "stats": {
-            "total_video_materials": len(draft_content.get("materials", {}).get("videos", [])),
-            "total_audio_materials": len(draft_content.get("materials", {}).get("audios", [])),
-            "total_transition_materials": len(transitions_info),
-            "total_accessory_materials": (
-                len(draft_content.get("materials", {}).get("speeds", [])) +
-                len(draft_content.get("materials", {}).get("placeholder_infos", [])) +
-                len(draft_content.get("materials", {}).get("sound_channel_mappings", []))
-            ),
-        }
-    }
-    return summary
+def _numeric_key(p: Path) -> tuple[int, str]:
+    """
+    Sort by numeric filename stem when possible (1,2,10),
+    otherwise push to the end and use case-insensitive stem.
+    """
+    stem = p.stem
+    m = re.fullmatch(r"(\d+)", stem)
+    return (int(m.group(1)) if m else 10**12, stem.lower())
 
+def _is_media(p: Path) -> bool:
+    ex = p.suffix.lower()
+    return ex in _IMAGE_EXTS or ex in _VIDEO_EXTS
 
-__all__ = [
-    "ProbedMedia",
-    "probe_media_or_image",
-    "natural_key",
-    "compute_operations",
-]
+def _is_audio(p: Path) -> bool:
+    return p.suffix.lower() in _AUDIO_EXTS
+
+def list_media_files(images_dir: Path, sounds_dir: Path) -> Dict[str, List[Path]]:
+    media: List[Path] = []
+    sounds: List[Path] = []
+    images_dir = Path(images_dir)
+    sounds_dir = Path(sounds_dir)
+
+    if images_dir.exists():
+        media = sorted(
+            [p for p in images_dir.iterdir() if p.is_file() and _is_media(p)],
+            key=_numeric_key
+        )
+    if sounds_dir.exists():
+        sounds = sorted([p for p in sounds_dir.iterdir() if p.is_file() and _is_audio(p)])
+
+    return {"media": media, "sounds": sounds}
+
+# ------------------ audio duration probing ------------------
+
+def _ffprobe_duration_seconds(path: Path) -> Optional[float]:
+    """Return duration in seconds using ffprobe, if available on PATH."""
+    try:
+        cmd = ["ffprobe", "-v", "error",
+               "-show_entries", "format=duration",
+               "-of", "default=nw=1:nk=1",
+               str(path)]
+        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=False)
+        s = out.decode("utf-8", "ignore").strip()
+        if s:
+            return float(s)
+    except Exception:
+        pass
+    return None
+
+def _mutagen_duration_seconds(path: Path) -> Optional[float]:
+    try:
+        from mutagen import File as MutagenFile  # type: ignore
+        mf = MutagenFile(str(path))
+        if mf and getattr(mf, "info", None) and getattr(mf.info, "length", None):
+            return float(mf.info.length)
+    except Exception:
+        pass
+    return None
+
+def _wave_duration_seconds(path: Path) -> Optional[float]:
+    if path.suffix.lower() not in {".wav", ".wave"}:
+        return None
+    try:
+        import wave
+        with wave.open(str(path), "rb") as w:
+            frames = w.getnframes()
+            rate = w.getframerate()
+            if rate > 0:
+                return frames / float(rate)
+    except Exception:
+        pass
+    return None
+
+def probe_audio_duration_us(path: Path) -> Optional[int]:
+    """
+    Try multiple strategies to get accurate audio duration.
+    Order: ffprobe -> mutagen -> wave -> None
+    Returns microseconds, or None if unknown.
+    """
+    path = Path(path)
+    for fn in (_ffprobe_duration_seconds, _mutagen_duration_seconds, _wave_duration_seconds):
+        sec = fn(path)
+        if sec and sec > 0:
+            return int(round(sec * MICROS_PER_SEC))
+    return None

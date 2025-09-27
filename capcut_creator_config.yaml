@@ -1,87 +1,30 @@
-# CapCut Auto Project Creator Configuration - Enhanced
 
-# Template and output directories
-template_dir: "./template-config"
-project_root: "."
-
-# Required CapCut project directory structure
-required_structure:
-  - ".locked"
-  - "adjust_mask"
-  - "common_attachment"
-  - "draft_settings"
-  - "matting"
-  - "qr_upload"
-  - "Resources"
-  - "Resources/audioAlg"
-  - "Resources/videoAlg"
-  - "smart_crop"
-  - "subdraft"
-
-# Project naming configuration
-naming:
-  pattern: "^[A-Z]\\d{4}$"
-  examples: ["A0001", "B9999", "Z1234"]
-
-# Asset discovery and processing
-assets:
-  images_dir: "./assets/images"
-  sounds_dir: "./assets/sounds"
-
-  # Include videos here so they are scanned & added to the timeline
-  image_extensions:
-    [".jpg", ".jpeg", ".png", ".bmp", ".webp",
-     ".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm", ".3gp", ".mts", ".m2ts"]
-
-  sound_extensions:
-    [".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac"]
-
-  default_image_duration_ms: 5000
-
-# Timeline configuration
-timeline:
+project:
+  name_pattern: "A{rand4}"
   fps: 30
-  default_image_duration_ms: 5000   # default 5s duration for images
-  ordering: "numeric"               # numeric sort (1,2,3…10,11 not 1,10,11,2,3)
+  image_duration_ms: 5000
+  transition_policy:
+    mode: "random"
+    fixed_name: "Fade"
+    min_duration_ms: 300
+    max_duration_ms: 900
 
-transitions:
-  per_cut_probability: 1.0
-  duration_ms_range: [600, 900]
-  cache_root: "C:/Users/Admin/AppData/Local/CapCut/User Data/Cache/effect"
-  catalog:
-    - name: "Fast Swipe"
-      is_overlap: true
-      category_id: "25822"
-      category_name: "Trending"
-      effect_id: "7544051798751874365"
-      resource_id: "7544051798751874365"
-      third_resource_id: "0"
-    - name: "Clap & Pull"
-      is_overlap: true
-      category_id: "25822"
-      category_name: "Trending"
-      effect_id: "7537227214035619088"
-      resource_id: "7537227214035619088"
-      third_resource_id: "0"
+paths:
+  images_dir: "assets/images-videos"
+  sounds_dir: "assets/sounds"
+  out_root: "out"
+  template_draft_content: "assets/template-config/draft_content.json"
+  template_draft_meta_info: "assets/template-config/draft_meta_info.json"
+  template_draft_virtual_store: "assets/template-config/draft_virtual_store.json"
+  key_value_map: "assets/template-config/key_value.json"
+  transitions_catalog: "assets/template-config/transitions-catalog.json"
 
+stages:
+  scan_assets: true
+  import_media: true
+  build_timeline: true
+  sync_and_save: true
 
-# Validation and auto-repair settings
-doctor:
-  autofix: true                     # automatically fix common issues
-  strict: true                      # strict validation mode
-
-# ID generation strategy
-ids:
-  strategy: "mirror"                # replicate CapCut's ID structure
-
-# Advanced settings
-advanced:
-  max_template_size_mb: 500         # maximum template directory size
-  backup_on_overwrite: true         # create .bak files before overwriting
-  backup_dir: "./.capcut_backups"   # backup directory location
-
-# Logging configuration
 logging:
-  level: "INFO"                     # DEBUG, INFO, WARNING, ERROR, CRITICAL
-  file: null                        # set to path for file logging
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  level: "INFO"
+  file: null
