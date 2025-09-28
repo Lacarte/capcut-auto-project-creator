@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Tuple
 from pathlib import Path
 import json
 import yaml
+from jsonfiller import import_sfx_folder
 
 from operations import list_media_files, now_epoch_ms
 from jsonfiller import (
@@ -197,6 +198,7 @@ def run_pipeline(cfg_path: Path, project_name: str | None = None) -> Dict[str, A
     # Extract picked transitions for the summary (from assembled DC)
     transitions_picked = _extract_picked_transitions(dc)
     transitions_debug = dc.get("_transitions_debug", [])
+    dmi, dvs = import_sfx_folder(dmi, dvs, assets_root="assets")
 
     # 4) Sync & save
     if cfg["stages"].get("sync_and_save", True):

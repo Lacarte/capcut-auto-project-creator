@@ -2,7 +2,7 @@
 project:
   name_pattern: "A{rand4}"
   fps: 30
-  image_duration_ms: 5000
+  image_duration_ms: 3000
   transition_policy:
     mode: "random"
     fixed_name: "Fade"
@@ -12,6 +12,7 @@ project:
 paths:
   images_dir: "assets/images-videos"
   sounds_dir: "assets/sounds"
+  sounds_fx_dir: "assets/sounds-fx"
   out_root: "out"
   template_draft_content: "assets/template-config/draft_content.json"
   template_draft_meta_info: "assets/template-config/draft_meta_info.json"
@@ -19,6 +20,7 @@ paths:
   key_value_map: "assets/template-config/key_value.json"
   transitions_catalog: "assets/template-config/transitions-catalog.json"
   template_cover: "assets/template-config/draft_cover.jpg"
+
 
 stages:
   scan_assets: true

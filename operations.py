@@ -7,8 +7,6 @@ import time
 import random
 import re
 import subprocess
-import shlex
-import math
 
 MICROS_PER_MS = 1_000
 MICROS_PER_SEC = 1_000_000
@@ -61,7 +59,7 @@ def clamp_transition_duration_ms(cat_entry: Dict[str, Any], desired_ms: int) -> 
     d  = int(desired_ms)
     return max(mn, min(mx, d))
 
-# ------------------ media scanning (mixed images & videos) ------------------
+# ------------------ media scanning (images/videos, music, sfx) ------------------
 
 _IMAGE_EXTS = {".jpg",".jpeg",".png",".bmp",".webp",".gif",".tif",".tiff"}
 _VIDEO_EXTS = {".mp4",".mov",".mkv",".avi",".webm",".m4v"}
@@ -83,21 +81,41 @@ def _is_media(p: Path) -> bool:
 def _is_audio(p: Path) -> bool:
     return p.suffix.lower() in _AUDIO_EXTS
 
-def list_media_files(images_dir: Path, sounds_dir: Path) -> Dict[str, List[Path]]:
+def list_media_files(images_dir: Path, sounds_dir: Path, sounds_fx_dir: Path | None = None) -> Dict[str, List[Path]]:
+    """
+    Discover assets:
+      - media: images/videos in images_dir (flat)
+      - sounds: audio files in sounds_dir (flat)
+      - sounds_fx: audio files under sounds_fx_dir (recursive), optional
+    Returns absolute Paths sorted deterministically.
+    """
     media: List[Path] = []
     sounds: List[Path] = []
+    sounds_fx: List[Path] = []
+
     images_dir = Path(images_dir)
     sounds_dir = Path(sounds_dir)
 
     if images_dir.exists():
         media = sorted(
-            [p for p in images_dir.iterdir() if p.is_file() and _is_media(p)],
+            [p.resolve() for p in images_dir.iterdir() if p.is_file() and _is_media(p)],
             key=_numeric_key
         )
     if sounds_dir.exists():
-        sounds = sorted([p for p in sounds_dir.iterdir() if p.is_file() and _is_audio(p)])
+        sounds = sorted(
+            [p.resolve() for p in sounds_dir.iterdir() if p.is_file() and _is_audio(p)]
+        )
 
-    return {"media": media, "sounds": sounds}
+    if sounds_fx_dir:
+        sfx_root = Path(sounds_fx_dir)
+        if sfx_root.exists():
+            # recurse, preserve deterministic order (path string)
+            sounds_fx = sorted(
+                [p.resolve() for p in sfx_root.rglob("*") if p.is_file() and _is_audio(p)],
+                key=lambda x: str(x).lower()
+            )
+
+    return {"media": media, "sounds": sounds, "sounds_fx": sounds_fx}
 
 # ------------------ audio duration probing ------------------
 

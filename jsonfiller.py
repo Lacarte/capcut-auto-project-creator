@@ -4,6 +4,9 @@ from typing import Dict, Any, List, Tuple
 from pathlib import Path
 import json
 import shutil
+import uuid
+import time
+
 
 from operations import (
     gen_uuid,
@@ -14,6 +17,9 @@ from operations import (
     probe_audio_duration_us,
     MICROS_PER_SEC,
 )
+
+_AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
+
 
 # ---------- IO helpers ----------
 
@@ -159,6 +165,89 @@ def _new_vocal_separation(mats: Dict[str, Any]) -> str:
     })
     return i
 
+
+def _get_section_by_type(items, type_value):
+    # items is a list like [{"type":0,"value":[...]}, {"type":1,"value":[...]}]
+    for it in items:
+        if it.get("type") == type_value:
+            return it
+    # If not found, create it
+    sec = {"type": type_value, "value": []}
+    items.append(sec)
+    return sec
+
+def import_sfx_folder(dmi, dvs, assets_root="assets"):
+    """
+    Import assets/sounds-fx into draft_meta_info (as metetype:'music')
+    and draft_virtual_store (folder + relations). No timeline placement.
+    """
+    sfx_dir = Path(assets_root) / "sounds-fx"
+    if not sfx_dir.exists():
+        return dmi, dvs
+
+    now = int(time.time())
+
+    # --- buckets from actual schema ---
+    # draft_virtual_store: list of {type, value}
+    vstore_list = dvs["draft_virtual_store"]  # matches your file shape
+    folders_bucket = _get_section_by_type(vstore_list, 0)["value"]   # folders
+    rels_bucket    = _get_section_by_type(vstore_list, 1)["value"]   # relations
+
+    # draft_materials: list of {type, value}
+    mats_list = dmi["draft_materials"]
+    mats_bucket = _get_section_by_type(mats_list, 0)["value"]        # materials
+
+    # create/find root "sounds-fx" folder only once
+    sfx_folder_id = None
+    for f in folders_bucket:
+        if f.get("display_name") == "sounds-fx":
+            sfx_folder_id = f.get("id")
+            break
+    if not sfx_folder_id:
+        sfx_folder_id = str(uuid.uuid4())
+        folders_bucket.append({
+            "creation_time": now,
+            "display_name": "sounds-fx",
+            "filter_type": 0,
+            "id": sfx_folder_id,
+            "import_time": now,
+            "import_time_us": now * 1_000_000,
+            "sort_sub_type": 0,
+            "sort_type": 0
+        })
+        rels_bucket.append({"child_id": sfx_folder_id, "parent_id": ""})
+
+    # add each audio file under the sounds-fx folder
+    for file in sfx_dir.rglob("*"):
+        if not file.is_file():
+            continue
+        if file.suffix.lower() not in _AUDIO_EXTS:
+            continue
+
+        material_id = str(uuid.uuid4())
+        mats_bucket.append({
+            "ai_group_type": "",
+            "create_time": now,
+            "duration": 5_000_000,  # dummy; not used since we don't place on timeline
+            "extra_info": file.name,
+            "file_Path": str(file.resolve()),
+            "height": 0,
+            "id": material_id,
+            "import_time": now,
+            "import_time_ms": now * 1000,
+            "item_source": 1,
+            "md5": "",
+            "metetype": "music",
+            "roughcut_time_range": {"duration": 5_000_000, "start": 0},
+            "sub_time_range": {"duration": -1, "start": -1},
+            "type": 0,
+            "width": 0
+        })
+        rels_bucket.append({"child_id": material_id, "parent_id": sfx_folder_id})
+
+    return dmi, dvs
+
+
 # ---------- Transition path resolver ----------
 
 def _resolve_transition_effect_path(raw_path: str) -> Tuple[str, Dict[str, Any]]:
@@ -234,7 +323,6 @@ def _resolve_transition_effect_path(raw_path: str) -> Tuple[str, Dict[str, Any]]
     return "", dbg
 
 # ---------- Timeline ----------
-
 def build_timeline_using_templates(
     dc: Dict[str, Any],
     media: List[Dict[str, Any]],
@@ -256,7 +344,7 @@ def build_timeline_using_templates(
     dc["tracks"] = []
     dc["_transitions_debug"] = []  # for summary
 
-    # main video track
+    # -------- main video track --------
     main_track = {
         "type": "video",
         "segments": [],
@@ -311,12 +399,11 @@ def build_timeline_using_templates(
             dur_ms = clamp_transition_duration_ms(t, policy.get("max_duration_ms", t.get("default_duration_ms", 600)))
             trans_id = gen_uuid(False)
 
-            # Build a path from template, then resolve to the HASH folder if present
+            # Build path from catalog, then resolve to deep hash folder if present
             raw_path = t.get("path_template", "")
             eff_id = str(t.get("effect_id", ""))
             if raw_path and "{effect_id}" in raw_path:
                 raw_path = raw_path.replace("{effect_id}", eff_id)
-
             resolved_path, dbg = _resolve_transition_effect_path(raw_path)
 
             mats["transitions"].append({
@@ -332,7 +419,7 @@ def build_timeline_using_templates(
                 "duration": ms_to_us(dur_ms),
                 "platform": t.get("platform", "all"),
                 "source_platform": int(t.get("source_platform", 1)),
-                "path": resolved_path,  # <- use the resolved deep folder or ''
+                "path": resolved_path,
                 "material_is_purchased": str(t.get("material_is_purchased", "1")),
                 "is_vip": bool(t.get("is_vip", False)),
             })
@@ -355,15 +442,16 @@ def build_timeline_using_templates(
         main_track["segments"].append(seg)
         timeline_end = max(timeline_end, start_us + dur_us)
 
-    # AUDIO: true length, editable tail, proper extras, and link to import
-    audio_end = 0
-    if sounds:
-        a0 = sounds[0]
-        apath = Path(a0["path"]).resolve()
+    # -------- AUDIO: each sound -> its own audio track --------
+    longest_audio_end = 0
+    for idx, a in enumerate(sounds):
+        apath = Path(a["path"]).resolve()
         audio_us = probe_audio_duration_us(apath)
         if not audio_us or audio_us <= 0:
+            # fallback: at least 30s and never shorter than current video end
             audio_us = max(timeline_end, 30 * MICROS_PER_SEC)
 
+        # Per-track accessories (unique per audio track)
         speed_id = _new_speed(mats)
         ph_id    = _new_placeholder(mats)
         beats_id = _new_beats(mats)
@@ -373,21 +461,23 @@ def build_timeline_using_templates(
         amid = gen_uuid(False)
         aseg = gen_uuid(False)
 
+        # Audio material (link to import with local_material_id)
         mats["audios"].append({
             "id": amid,
             "type": "extract_music",
             "name": apath.name,
-            "path": str(apath),
+            "path": str(apath),               # ABSOLUTE
             "duration": int(audio_us),
             "category_id": "",
             "category_name": "local",
             "check_flag": 1,
-            "local_material_id": a0["material_id"],
+            "local_material_id": a["material_id"],
             "ai_music_type": 0,
             "ai_music_generate_scene": 0,
             "source_platform": 0,
         })
 
+        # One track per sound (order preserved)
         dc["tracks"].append({
             "type": "audio",
             "segments": [{
@@ -395,6 +485,7 @@ def build_timeline_using_templates(
                 "material_id": amid,
                 "target_timerange": {"start": 0, "duration": int(audio_us)},
                 "source_timerange": {"start": 0, "duration": int(audio_us)},
+                # order from your sample: speed, placeholder, beats, sound_channel_mapping, vocal_separation
                 "extra_material_refs": [speed_id, ph_id, beats_id, scm_id, vs_id],
                 "source": "segmentsourcenormal",
                 "visible": True,
@@ -408,8 +499,9 @@ def build_timeline_using_templates(
             "attribute": 0,
             "is_default_name": True,
         })
-        audio_end = int(audio_us)
 
-    # Project duration expands to cover audio if longer
-    dc["duration"] = max(timeline_end, audio_end)
+        longest_audio_end = max(longest_audio_end, int(audio_us))
+
+    # Project duration expands to the longest lane (video or any audio)
+    dc["duration"] = max(timeline_end, longest_audio_end)
     return dc

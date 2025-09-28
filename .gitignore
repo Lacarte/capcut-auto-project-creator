@@ -1,7 +1,8 @@
 assets/images-videos/
-assets/sounds.
+assets/sounds/
+assets/sounds-fx/
 libs/ffprobe.exe
-reserve
+reserve/
 .capcut_backups/
 out/
 # Byte-compiled / optimized / DLL files
