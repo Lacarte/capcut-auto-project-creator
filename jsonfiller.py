@@ -67,20 +67,13 @@ def ingest_media_into_meta_and_store(
     sounds: List[Path],
 ) -> Tuple[Dict[str, Any], Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    RESET imports/links, then insert current assets with ABSOLUTE paths:
-      - draft_meta_info.draft_materials[type=0].value[]  (imports)
-      - draft_virtual_store.draft_virtual_store[type=1].value[]  (child links)
-
-    Returns:
-      media_entries  = [{ material_id (import-id), path(abs), metetype }, ...]
-      sound_entries  = [{ material_id (import-id), path(abs), metetype }, ...]
+    RESET imports/links, then insert current assets with ABSOLUTE paths.
     """
     dmi.setdefault("draft_materials", [])
     dvs.setdefault("draft_virtual_store", [])
     meta_imports = _ensure_bucket(dmi["draft_materials"], 0)
     vs_links     = _ensure_bucket(dvs["draft_virtual_store"], 1)
 
-    # Clear stale template entries
     meta_imports["value"].clear()
     vs_links["value"].clear()
 
@@ -94,7 +87,7 @@ def ingest_media_into_meta_and_store(
         imp = {
             "id": mid,
             "type": 0,
-            "file_Path": str(p_abs),          # <-- ABSOLUTE
+            "file_Path": str(p_abs),          # ABSOLUTE
             "metetype": metetype,
             "extra_info": p_abs.name,
             "width": 0, "height": 0,
@@ -109,23 +102,15 @@ def ingest_media_into_meta_and_store(
 
     for p in media:
         imp = _add_import(p)
-        media_entries.append({
-            "material_id": imp["id"],         # import-id (used later as local_material_id)
-            "path": imp["file_Path"],         # ABSOLUTE
-            "metetype": imp["metetype"],
-        })
+        media_entries.append({"material_id": imp["id"], "path": imp["file_Path"], "metetype": imp["metetype"]})
 
     for p in sounds:
         imp = _add_import(p)
-        sound_entries.append({
-            "material_id": imp["id"],         # import-id (used later as local_material_id)
-            "path": imp["file_Path"],         # ABSOLUTE
-            "metetype": imp["metetype"],
-        })
+        sound_entries.append({"material_id": imp["id"], "path": imp["file_Path"], "metetype": imp["metetype"]})
 
     return dmi, dvs, media_entries, sound_entries
 
-# ---------- Timeline ----------
+# ---------- Accessory creators ----------
 
 def _new_speed(mats: Dict[str, Any]) -> str:
     i = gen_uuid(False)
@@ -146,7 +131,6 @@ def _new_sound_channel_mapping(mats: Dict[str, Any]) -> str:
     return i
 
 def _new_beats(mats: Dict[str, Any]) -> str:
-    """Create a beats material to match CapCut’s audio extras (minimal)."""
     i = gen_uuid(False)
     mats.setdefault("beats", []).append({
         "id": i,
@@ -162,7 +146,6 @@ def _new_beats(mats: Dict[str, Any]) -> str:
     return i
 
 def _new_vocal_separation(mats: Dict[str, Any]) -> str:
-    """Create a minimal vocal_separation material as seen in your sample."""
     i = gen_uuid(False)
     mats.setdefault("vocal_separations", []).append({
         "id": i,
@@ -175,6 +158,82 @@ def _new_vocal_separation(mats: Dict[str, Any]) -> str:
         "time_range": None
     })
     return i
+
+# ---------- Transition path resolver ----------
+
+def _resolve_transition_effect_path(raw_path: str) -> Tuple[str, Dict[str, Any]]:
+    """
+    Given a template path like .../effect/{effect_id}/,
+    return the actual directory CapCut expects:
+      - Prefer a child dir containing config.json/extra.json (hash folder).
+      - Else if current dir already has them, keep it.
+      - Else fall back to '' (let CapCut resolve by IDs).
+    Returns (resolved_path, debug_info).
+    """
+    dbg = {"given": raw_path, "exists": False, "used": "", "has_config": False,
+           "has_extra": False, "has_content": False, "has_main_scene": False}
+    if not raw_path:
+        return "", dbg
+    root = Path(raw_path)
+    if not root.exists() or not root.is_dir():
+        return "", dbg
+    dbg["exists"] = True
+
+    def _score_dir(d: Path) -> Tuple[int, Dict[str, bool]]:
+        has_config = (d / "config.json").exists()
+        has_extra = (d / "extra.json").exists()
+        has_content = (d / "content.json").exists()
+        has_main_scene = (d / "main.scene").exists()
+        score = int(has_config) * 4 + int(has_extra) * 3 + int(has_content) * 2 + int(has_main_scene)
+        return score, {"has_config": has_config, "has_extra": has_extra, "has_content": has_content, "has_main_scene": has_main_scene}
+
+    # 1) If root itself looks like an effect payload folder, use it
+    score_root, flags_root = _score_dir(root)
+    if score_root > 0:
+        dbg.update(flags_root)
+        dbg["used"] = str(root)
+        return str(root), dbg
+
+    # 2) Prefer a child dir with config/extra (hash folder)
+    candidates = [d for d in root.iterdir() if d.is_dir() and not d.name.endswith("_tmp")]
+    best = None
+    best_flags = None
+    best_score = -1
+    for d in candidates:
+        score, flags = _score_dir(d)
+        if score > best_score:
+            best, best_score, best_flags = d, score, flags
+
+    if best and best_score > 0:
+        dbg.update(best_flags)
+        dbg["used"] = str(best)
+        return str(best), dbg
+
+    # 3) Fallback: choose first subdir (some packs put payload under a nested folder like AmazingAuto_out/)
+    if candidates:
+        d = candidates[0]
+        # try one more level (AmazingAuto_out)
+        deeper = [c for c in d.iterdir() if c.is_dir()]
+        if deeper:
+            # pick a deeper one that has content.json/main.scene if available
+            deep_best = None
+            deep_flags = None
+            deep_score = -1
+            for c in deeper:
+                score, flags = _score_dir(c)
+                if score > deep_score:
+                    deep_best, deep_score, deep_flags = c, score, flags
+            if deep_best:
+                dbg.update(deep_flags)
+                dbg["used"] = str(deep_best)
+                return str(deep_best), dbg
+        dbg["used"] = str(d)
+        return str(d), dbg
+
+    # 4) Nothing convincing; let CapCut resolve by IDs
+    return "", dbg
+
+# ---------- Timeline ----------
 
 def build_timeline_using_templates(
     dc: Dict[str, Any],
@@ -192,9 +251,10 @@ def build_timeline_using_templates(
     mats["speeds"] = []
     mats["placeholder_infos"] = []
     mats["sound_channel_mappings"] = []
-    mats["beats"] = []                 # <-- to match your audio-only sample
-    mats["vocal_separations"] = []     # <-- to match your audio-only sample
+    mats["beats"] = []
+    mats["vocal_separations"] = []
     dc["tracks"] = []
+    dc["_transitions_debug"] = []  # for summary
 
     # main video track
     main_track = {
@@ -212,7 +272,7 @@ def build_timeline_using_templates(
     rr = 0
     timeline_end = 0
 
-    # Build video/photo segments (unchanged from prior version)
+    # Build video/photo segments
     for idx, (m, pos) in enumerate(zip(media, positions)):
         start_us, dur_us = pos
         mtype = "video" if m.get("metetype") == "video" else "photo"
@@ -224,7 +284,7 @@ def build_timeline_using_templates(
             "id": mat_id,
             "type": mtype,
             "name": Path(vpath).name,
-            "path": vpath,                    # ABSOLUTE
+            "path": vpath,
             "duration": dur_us,
             "has_audio": False,
             "material_name": Path(vpath).name,
@@ -242,40 +302,60 @@ def build_timeline_using_templates(
             "speed": 1.0,
             "visible": True,
             "source": "segmentsourcenormal",
-            "extra_material_refs": [speed_id, ph_id],
+            "extra_material_refs": [speed_id, ph_id],  # transition id appended (if any), then scm
         }
 
+        # Transition after this segment if there's a next one
         if idx < len(media) - 1 and catalog:
             t = choose_transition(catalog, policy, rr_idx=rr); rr += 1
             dur_ms = clamp_transition_duration_ms(t, policy.get("max_duration_ms", t.get("default_duration_ms", 600)))
             trans_id = gen_uuid(False)
-            path = t.get("path_template", "")
+
+            # Build a path from template, then resolve to the HASH folder if present
+            raw_path = t.get("path_template", "")
             eff_id = str(t.get("effect_id", ""))
-            if path and "{effect_id}" in path:
-                path = path.replace("{effect_id}", eff_id)
+            if raw_path and "{effect_id}" in raw_path:
+                raw_path = raw_path.replace("{effect_id}", eff_id)
+
+            resolved_path, dbg = _resolve_transition_effect_path(raw_path)
 
             mats["transitions"].append({
                 "id": trans_id,
                 "type": "transition",
                 "name": t.get("name"),
-                "effect_id": t.get("effect_id"),
-                "resource_id": t.get("resource_id", eff_id),
-                "third_resource_id": t.get("third_resource_id", eff_id),
-                "category_id": t.get("category_id"),
-                "category_name": t.get("category_name"),
+                "effect_id": eff_id,
+                "resource_id": str(t.get("resource_id", eff_id)),
+                "third_resource_id": str(t.get("third_resource_id", eff_id)),
+                "category_id": str(t.get("category_id", "")),
+                "category_name": t.get("category_name", ""),
                 "is_overlap": bool(t.get("is_overlap", True)),
                 "duration": ms_to_us(dur_ms),
                 "platform": t.get("platform", "all"),
-                "source_platform": t.get("source_platform", 1),
-                "path": path,
+                "source_platform": int(t.get("source_platform", 1)),
+                "path": resolved_path,  # <- use the resolved deep folder or ''
+                "material_is_purchased": str(t.get("material_is_purchased", "1")),
+                "is_vip": bool(t.get("is_vip", False)),
             })
             seg["extra_material_refs"].append(trans_id)
+
+            # Debug record for summary
+            dc["_transitions_debug"].append({
+                "index": idx,
+                "transition_id": trans_id,
+                "name": t.get("name"),
+                "effect_id": eff_id,
+                "duration_ms": int(dur_ms),
+                "given_path": raw_path,
+                "resolved_path": resolved_path,
+                "path_exists": bool(resolved_path),
+                **{k: v for k, v in dbg.items() if k in ("has_config","has_extra","has_content","has_main_scene")}
+            })
 
         seg["extra_material_refs"].append(scm_id)
         main_track["segments"].append(seg)
         timeline_end = max(timeline_end, start_us + dur_us)
 
-    # --- AUDIO: true length, editable tail, proper extras, and link to import ---
+    # AUDIO: true length, editable tail, proper extras, and link to import
     audio_end = 0
     if sounds:
         a0 = sounds[0]
@@ -284,27 +364,25 @@ def build_timeline_using_templates(
         if not audio_us or audio_us <= 0:
             audio_us = max(timeline_end, 30 * MICROS_PER_SEC)
 
-        # Accessory materials for audio
         speed_id = _new_speed(mats)
         ph_id    = _new_placeholder(mats)
-        beats_id = _new_beats(mats)                # present in your sample
+        beats_id = _new_beats(mats)
         scm_id   = _new_sound_channel_mapping(mats)
-        vs_id    = _new_vocal_separation(mats)     # present in your sample
+        vs_id    = _new_vocal_separation(mats)
 
         amid = gen_uuid(False)
         aseg = gen_uuid(False)
 
-        # Audio material (mirror key fields from your sample—still minimal)
         mats["audios"].append({
             "id": amid,
             "type": "extract_music",
             "name": apath.name,
-            "path": str(apath),                     # ABSOLUTE
+            "path": str(apath),
             "duration": int(audio_us),
             "category_id": "",
             "category_name": "local",
             "check_flag": 1,
-            "local_material_id": a0["material_id"], # <-- link to import (critical)
+            "local_material_id": a0["material_id"],
             "ai_music_type": 0,
             "ai_music_generate_scene": 0,
             "source_platform": 0,
@@ -317,7 +395,6 @@ def build_timeline_using_templates(
                 "material_id": amid,
                 "target_timerange": {"start": 0, "duration": int(audio_us)},
                 "source_timerange": {"start": 0, "duration": int(audio_us)},
-                # match your sample order: speed, placeholder, beats, scm, vocal_separation
                 "extra_material_refs": [speed_id, ph_id, beats_id, scm_id, vs_id],
                 "source": "segmentsourcenormal",
                 "visible": True,

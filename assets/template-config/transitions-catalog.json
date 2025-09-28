@@ -15,7 +15,7 @@
       "max_duration_ms": 2000,
       "platform": "all",
       "source_platform": 1,
-      "path_template": "C:/Users/Admin/AppData/Local/CapCut/User Data/Cache/effect/{effect_id}/c3c314085f9828275f09644f5c446a4d"
+      "path_template": "C:/Users/Admin/AppData/Local/CapCut/User Data/Cache/effect/{effect_id}/"
     },
     {
       "name": "Film Blur",
@@ -32,7 +32,7 @@
       "max_duration_ms": 2000,
       "platform": "all",
       "source_platform": 1,
-      "path_template": "C:/Users/Admin/AppData/Local/CapCut/User Data/Cache/effect/{effect_id}/a4efe5e3a9fd8ce07b1760f5e998acc4"
+      "path_template": "C:/Users/Admin/AppData/Local/CapCut/User Data/Cache/effect/{effect_id}/"
     },
     {
       "name": "Slide Left",
@@ -67,52 +67,14 @@
       "platform": "all",
       "source_platform": 1,
       "path_template": "C:/Users/Admin/AppData/Local/CapCut/User Data/Cache/effect/{effect_id}/"
-    },
-    {
-      "name": "Fade",
-      "effect_id": "7000000000000000001",
-      "resource_id": "7000000000000000001",
-      "third_resource_id": "7000000000000000001",
-      "category_id": "25822",
-      "category_name": "Basic",
-      "is_overlap": true,
-      "is_vip": false,
-      "material_is_purchased": "1",
-      "default_duration_ms": 500,
-      "min_duration_ms": 100,
-      "max_duration_ms": 2000,
-      "platform": "all",
-      "source_platform": 1,
-      "path_template": ""
-    },
-    {
-      "name": "Zoom",
-      "effect_id": "7000000000000000002",
-      "resource_id": "7000000000000000002",
-      "third_resource_id": "7000000000000000002",
-      "category_id": "25822",
-      "category_name": "Basic",
-      "is_overlap": true,
-      "is_vip": false,
-      "material_is_purchased": "1",
-      "default_duration_ms": 600,
-      "min_duration_ms": 200,
-      "max_duration_ms": 2000,
-      "platform": "all",
-      "source_platform": 1,
-      "path_template": ""
     }
   ],
   "categories": [
-    {
-      "id": "25822",
-      "name": "Trending",
-      "description": "Popular transitions"
-    },
-    {
-      "id": "25831",
-      "name": "Slide",
-      "description": "Slide-based transitions"
-    }
+    {"id": "25822", "name": "Trending", "description": "Popular transitions"},
+    {"id": "25831", "name": "Slide", "description": "Slide-based transitions"},
+    {"id": "25829", "name": "Glitch", "description": "Glitch effects"},
+    {"id": "25823", "name": "Overlay", "description": "Overlay transitions"},
+    {"id": "25827", "name": "Basic", "description": "Basic transitions"},
+    {"id": "2037708124", "name": "Hits", "description": "Hits collection"}
   ]
 }

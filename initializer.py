@@ -75,6 +75,51 @@ def ensure_required_structure(proj_dir: Path) -> None:
         (proj_dir / d).mkdir(parents=True, exist_ok=True)
 
 
+# ------------------------- reporting helpers -------------------------
+
+def _extract_picked_transitions(dc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Infer the chosen transitions by:
+      1) Building a lookup of materials.transitions by id
+      2) Scanning the main video track segments; for each cut i→i+1,
+         check if seg[i].extra_material_refs contains a transition id.
+    Returns a list with stable, human-friendly info:
+      [{index, from_segment_id, to_segment_id, name, effect_id, duration_us, is_overlap}, ...]
+    """
+    mats = (dc or {}).get("materials", {})
+    trans_lookup = {t.get("id"): t for t in mats.get("transitions", []) if isinstance(t, dict) and t.get("id")}
+    if not trans_lookup:
+        return []
+
+    # main video track (first 'video' track)
+    tracks = (dc or {}).get("tracks", [])
+    video_track = next((t for t in tracks if t.get("type") == "video"), None)
+    if not video_track:
+        return []
+
+    segs = video_track.get("segments", []) or []
+    out: List[Dict[str, Any]] = []
+    for i in range(max(0, len(segs) - 1)):
+        seg = segs[i]
+        next_seg = segs[i + 1]
+        refs = seg.get("extra_material_refs", []) or []
+        # find the first ref that matches a transition id
+        tid = next((r for r in refs if isinstance(r, str) and r in trans_lookup), None)
+        if not tid:
+            continue
+        t = trans_lookup[tid]
+        out.append({
+            "index": i,  # transition sits between segment i and i+1
+            "from_segment_id": seg.get("id"),
+            "to_segment_id": next_seg.get("id"),
+            "name": t.get("name"),
+            "effect_id": t.get("effect_id"),
+            "duration_us": t.get("duration"),
+            "is_overlap": bool(t.get("is_overlap", True)),
+        })
+    return out
+
+
 # ------------------------- pipeline -------------------------
 
 def run_pipeline(cfg_path: Path, project_name: str | None = None) -> Dict[str, Any]:
@@ -149,6 +194,10 @@ def run_pipeline(cfg_path: Path, project_name: str | None = None) -> Dict[str, A
             image_duration_ms=cfg["project"]["image_duration_ms"],
         )
 
+    # Extract picked transitions for the summary (from assembled DC)
+    transitions_picked = _extract_picked_transitions(dc)
+    transitions_debug = dc.get("_transitions_debug", [])
+
     # 4) Sync & save
     if cfg["stages"].get("sync_and_save", True):
         dc, dmi, dvs = sync_all(
@@ -164,16 +213,20 @@ def run_pipeline(cfg_path: Path, project_name: str | None = None) -> Dict[str, A
         save_json(dmi, concrete["draft_meta_info"])
         save_json(dvs, concrete["draft_virtual_store"])
 
-    # Summary
+    # Summary (include transitions we actually inserted)
+
     summary = {
-        "project_dir": str(proj_dir),
-        "files": {k: str(v) for k, v in concrete.items()},
-        "assets": {
-            "media":  [str(p) for p in assets["media"]],
-            "sounds": [str(p) for p in assets["sounds"]],
-        },
-        "transitions_loaded": len(catalog),
-        "name": project_name,
+    "project_dir": str(proj_dir),
+    "files": {k: str(v) for k, v in concrete.items()},
+    "assets": {
+        "media":  [str(p) for p in assets["media"]],
+        "sounds": [str(p) for p in assets["sounds"]],
+    },
+    "transitions_loaded": len(catalog),
+    "transitions_picked": transitions_picked,
+    "transitions_paths": transitions_debug,   # <-- shows path + path_exists per cut
+    "name": project_name,
     }
+
     (proj_dir / "build-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary

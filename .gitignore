@@ -1,6 +1,7 @@
+assets/images-videos/
+assets/sounds.
 libs/ffprobe.exe
-/reserve
-download-midjourney/
+reserve
 .capcut_backups/
 out/
 # Byte-compiled / optimized / DLL files

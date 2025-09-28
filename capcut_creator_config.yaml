@@ -18,6 +18,7 @@ paths:
   template_draft_virtual_store: "assets/template-config/draft_virtual_store.json"
   key_value_map: "assets/template-config/key_value.json"
   transitions_catalog: "assets/template-config/transitions-catalog.json"
+  template_cover: "assets/template-config/draft_cover.jpg"
 
 stages:
   scan_assets: true
